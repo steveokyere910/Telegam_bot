@@ -79,3 +79,14 @@ override its default `whisper-large-v3-turbo`. Twi transcription quality may
 vary. With the default local Ollama setup, text and photos are processed on the
 same PC; voice-note transcription still requires Groq. Photos are limited to
 5 MB and voice notes to 20 MB.
+
+Memory and mood are stored in SQLite in `bot_memory.db` next to `main.py` by
+default. Set `BOT_MEMORY_DB` to choose another database path; on deployments,
+point it at persistent storage if memory should survive redeploys. `/remember`
+saves a short preference for the user and the current chat, `/memory` shows
+saved context (personal memory is only displayed in a DM), `/forget` clears
+the current chat's saved context and the user's personal memories, and `/reset`
+clears only the current chat's history and shared memory. Use `/mood funny`,
+`/mood serious`, `/mood flirt`, or `/mood mentor` to select a personal response
+style. Personal facts and topics are capped, and stale chat/user memory is
+automatically pruned.
