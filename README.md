@@ -70,11 +70,12 @@ deployment is active.
   Make it an admin in the discussion group if Telegram's privacy settings
   prevent it from seeing those forwards.
 
-The bot does not keep conversation history. Text and any photo attached to a
-message that addresses the bot are sent to the configured model to generate a
-reply. Voice notes are sent to Groq for transcription before their text is
-passed to the chat model; use `GROQ_TRANSCRIPTION_MODEL` to override its default
-`whisper-large-v3-turbo`. Twi transcription quality may vary. With the default
-local Ollama setup, text and photos are processed on the same PC; voice-note
-transcription still requires Groq. Photos are limited to 5 MB and voice notes
-to 20 MB.
+The bot keeps the latest six exchanges in memory for each chat so it can follow
+up on earlier messages. History is cleared when the bot restarts. Text and any
+photo attached to a message that addresses the bot are sent to the configured
+model to generate a reply. Voice notes are sent to Groq for transcription before
+their text is passed to the chat model; use `GROQ_TRANSCRIPTION_MODEL` to
+override its default `whisper-large-v3-turbo`. Twi transcription quality may
+vary. With the default local Ollama setup, text and photos are processed on the
+same PC; voice-note transcription still requires Groq. Photos are limited to
+5 MB and voice notes to 20 MB.

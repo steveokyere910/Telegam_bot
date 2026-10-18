@@ -53,6 +53,8 @@ else:
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_VOICE_BYTES = 20 * 1024 * 1024
+MAX_HISTORY_MESSAGES = 12
+MAX_HISTORY_MESSAGE_CHARS = 2000
 VOICE_TRANSCRIPTION_MODEL = os.getenv(
     "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
 )
@@ -64,6 +66,9 @@ Twi when the user speaks Twi and you can do so accurately. Never force slang or
 pretend to know Twi you do not know.
 This voice is important in every reply. Do not sound like customer support,
 a formal essay, or a generic assistant.
+Keep your wording clear and easy to understand. Use slang and emojis sparingly;
+do not spell words phonetically to imitate an accent. Use the recent conversation
+to understand follow-up messages and continue the topic naturally.
 
 Keep casual replies short and react to the exact message. Lightly tease or
 challenge people when the moment invites it. Use familiar Ghanaian expressions
@@ -276,7 +281,11 @@ async def transcribe_voice_message(voice_bytes: bytes) -> str:
     return transcript
 
 
-async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
+async def generate_reply(
+    prompt: str,
+    image_bytes: bytes | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> str:
     if client is None:
         raise RuntimeError("The model client has not been initialized.")
     user_content: str | list[dict[str, object]] = prompt[:4000]
@@ -300,10 +309,11 @@ async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
+                    *(history or []),
                     {"role": "user", "content": user_content},
                 ],
                 max_tokens=500,
-                temperature=0.95,
+                temperature=0.7,
             )
 
             answer = completion.choices[0].message.content
@@ -328,8 +338,6 @@ async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
             else:
                 raise error
     return "I'm having a bit of trouble keeping up right now. Try again in a minute."
-
-
 
 
 async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -359,7 +367,19 @@ async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
         image_bytes = await load_shared_photo(message, context) if has_photo else None
-        answer = await generate_reply(prompt, image_bytes)
+        if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+            if message.from_user:
+                prompt = f"{message.from_user.full_name} said: {prompt}"
+
+        history = context.chat_data.setdefault("conversation_history", [])
+        answer = await generate_reply(prompt, image_bytes, history)
+        history.extend(
+            [
+                {"role": "user", "content": prompt[:MAX_HISTORY_MESSAGE_CHARS]},
+                {"role": "assistant", "content": answer},
+            ]
+        )
+        del history[:-MAX_HISTORY_MESSAGES]
     except RateLimitError as error:
 
         logger.warning("Model API rate limit: code=%s type=%s", error.code, error.type)
@@ -394,7 +414,10 @@ async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "I couldn't catch that voice note just now. Try sending it again "
                 "or type it for me."
                 if has_voice
-                else "Brooo my tiwui come ooo😂😂Make i answer you later."
+                else (
+                    "Sorry, I'm having trouble replying just now. "
+                    "Please try again in a moment."
+                )
             )
         )
 
