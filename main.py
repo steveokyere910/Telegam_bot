@@ -30,20 +30,25 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "ollama").strip().casefold()
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "groq").strip().casefold()
 if MODEL_PROVIDER == "ollama":
     MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5vl:3b")
     MODEL_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/")
     MODEL_API_KEY = "ollama"
 elif MODEL_PROVIDER == "gemini":
-    MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-8b")
+    MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
     MODEL_BASE_URL = os.getenv(
         "GEMINI_BASE_URL",
         "https://generativelanguage.googleapis.com/v1beta/openai/",
     )
     MODEL_API_KEY = os.getenv("GEMINI_API_KEY", "")
+elif MODEL_PROVIDER == "groq":
+    MODEL_NAME = os.getenv("GROQ_MODEL", "llama-3.2-90b-vision-preview")
+    MODEL_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    MODEL_API_KEY = os.getenv("GROQ_API_KEY", "")
 else:
-    raise SystemExit("MODEL_PROVIDER must be either 'ollama' or 'gemini'.")
+    raise SystemExit("MODEL_PROVIDER must be 'ollama', 'gemini', or 'groq'.")
+
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 SYSTEM_PROMPT = """You are The Complete Menace, a funny, sharp, warm Ghanaian
@@ -271,12 +276,18 @@ async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
         "The user shared this photo and invited you to respond. Make a brief, "
         "friendly, playful observation about a harmless detail in the image."
     )
-    try:
+        try:
         image_bytes = await load_shared_photo(message, context) if has_photo else None
         answer = await generate_reply(prompt, image_bytes)
     except RateLimitError as error:
         logger.warning("Model API rate limit: code=%s type=%s", error.code, error.type)
-        if error.code == "credit_balance_exhausted" or error.type == "insufficient_quota":
+        if MODEL_PROVIDER == "groq":
+            answer = (
+                "Chale, I've hit the Groq free tier limit for a second. "
+                "Wait like 30 seconds and try me again!"
+            )
+        elif error.code == "credit_balance_exhausted" or error.type == "insufficient_quota":
+
             answer = (
                 "Chale, the model provider's usage limit is reached. Please try again "
                 "later or ask the bot owner to check its quota."
@@ -432,11 +443,14 @@ def start_webhook(
 def main() -> None:
     global client
     if not BOT_TOKEN:
-        raise SystemExit("Set TELEGRAM_BOT_TOKEN in your .env file first.")
+        raise SystemExit("Set TELEGRAM_BOT_TOKEN in your environment first.")
     if MODEL_PROVIDER == "gemini" and not MODEL_API_KEY:
-        raise SystemExit("Set GEMINI_API_KEY in your .env file first.")
+        raise SystemExit("Set GEMINI_API_KEY in your environment first.")
+    if MODEL_PROVIDER == "groq" and not MODEL_API_KEY:
+        raise SystemExit("Set GROQ_API_KEY in your environment first.")
 
     client = AsyncOpenAI(
+
         api_key=MODEL_API_KEY,
         base_url=MODEL_BASE_URL,
     )
