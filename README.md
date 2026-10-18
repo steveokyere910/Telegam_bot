@@ -43,21 +43,26 @@ deployment is active.
 
 ## Add it to chats
 
-- **DMs:** Open the bot and send `/start`. It replies to text, captions, and
-  photos.
-- **Groups:** Add the bot, then mention it or reply to one of its messages.
-  If the bot only responds when it is an admin, open [@BotFather](https://t.me/BotFather),
-  send `/setprivacy`, select this bot, and choose **Disable**. Then remove the
-  bot from the group and add it again so Telegram applies the setting. Bots
-  with privacy disabled receive all group messages, but this bot's code still
-  only replies when it is mentioned, replied to, or sees a supported channel
-  forward.
+- **DMs:** Open the bot and send `/start`. It replies to text, captions, photos,
+  and voice notes with a text reply. Voice notes are transcribed with Groq's
+  Whisper model, so voice-note replies require `MODEL_PROVIDER=groq` and a
+  valid `GROQ_API_KEY`.
+- **Groups:** Add the bot, then type its display name (for example, `Pino`),
+  mention its username, or reply to one of its messages. To receive messages
+  containing only its display name, disable group privacy in @BotFather:
+  send `/setprivacy`, select this bot, choose **Disable**, then remove and
+  re-add the bot to the group so Telegram applies the setting.
+  Bots with privacy disabled receive all group messages, but this bot only
+  replies when its name or username is mentioned, someone replies to one of
+  its messages, or it sees a supported channel forward.
   For photo banter, tag the bot in the photo caption or reply to one of its
   messages with the photo. It does not retrieve profile pictures or inspect
   group photos unless the message addresses it.
-  If a mention gets no reply, make sure you tagged this bot's actual Telegram
-  account (not just its display name) and that the bot is still running. Both
-  `@username` mentions and Telegram's selected-name mentions are supported.
+  To get a voice-note reply, reply to one of the bot's messages with the voice
+  note, or add its name in the voice note's caption.
+  If it does not reply, make sure it is running and that group privacy is
+  disabled for display-name triggers. Both `@username` mentions and
+  Telegram's selected-name mentions are supported.
 - **Channels:** Make the bot an admin with permission to post messages. It
   replies to channel posts when the channel has no linked discussion group.
 - **Channel comments:** Link a discussion group to the channel and add the bot
@@ -67,5 +72,9 @@ deployment is active.
 
 The bot does not keep conversation history. Text and any photo attached to a
 message that addresses the bot are sent to the configured model to generate a
-reply. With the default local Ollama setup, these are processed on the same PC.
-Photos are limited to 5 MB.
+reply. Voice notes are sent to Groq for transcription before their text is
+passed to the chat model; use `GROQ_TRANSCRIPTION_MODEL` to override its default
+`whisper-large-v3-turbo`. Twi transcription quality may vary. With the default
+local Ollama setup, text and photos are processed on the same PC; voice-note
+transcription still requires Groq. Photos are limited to 5 MB and voice notes
+to 20 MB.

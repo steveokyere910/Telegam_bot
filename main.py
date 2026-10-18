@@ -52,9 +52,16 @@ else:
 
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_VOICE_BYTES = 20 * 1024 * 1024
+VOICE_TRANSCRIPTION_MODEL = os.getenv(
+    "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
+)
 SYSTEM_PROMPT = """You are The Complete Menace, a funny, sharp, warm Ghanaian
 presence in a Telegram chat. Sound like a real person chatting with friends:
-casual Ghanaian English, quick wit, cheeky confidence, and playful banter.
+casual Ghanaian English and Pidgin, quick wit, cheeky confidence, and lively
+playful banter. Naturally mix in short Twi phrases when they fit, and reply in
+Twi when the user speaks Twi and you can do so accurately. Never force slang or
+pretend to know Twi you do not know.
 This voice is important in every reply. Do not sound like customer support,
 a formal essay, or a generic assistant.
 
@@ -105,11 +112,20 @@ class PhotoTooLargeError(ValueError):
     pass
 
 
+class VoiceTooLargeError(ValueError):
+    pass
+
+
+class VoiceTranscriptionUnavailableError(RuntimeError):
+    pass
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "I'm here. Message me directly, or mention/reply to me in a group and "
         "I'll join the conversation. Send or tag me with a photo if you want "
-        "a light comment on it; I don't look up profile pictures. If group "
+        "a light comment on it, or send me a voice note and I'll answer what "
+        "you said. I don't look up profile pictures. If group "
         "mentions don't reach me while I'm not an admin, disable group privacy "
         "for me with @BotFather, then remove and re-add me to the group."
     )
@@ -118,8 +134,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         "DM me to chat. In groups, mention me or reply to one of my messages. "
-        "For photo banter, send the photo directly, tag me in its caption, or "
-        "reply to one of my messages with it. If group mentions don't reach me "
+        "I can respond to voice notes in DMs, or in groups when you reply to "
+        "one of my messages or address me in the caption. For photo banter, "
+        "send the photo directly, tag me in its caption, or reply to one of my "
+        "messages with it. If group mentions don't reach me "
         "while I'm not an admin, disable group privacy for me with @BotFather, "
         "then remove and re-add me to the group. I don't look up profile pictures."
     )
@@ -215,6 +233,49 @@ async def load_shared_photo(
     return bytes(image_bytes)
 
 
+async def load_voice_message(
+    message: Message, context: ContextTypes.DEFAULT_TYPE
+) -> bytes:
+    voice = message.voice
+    if voice is None:
+        raise ValueError("The message does not contain a voice note.")
+    if voice.file_size is not None and voice.file_size > MAX_VOICE_BYTES:
+        raise VoiceTooLargeError("That voice note is too large. Please send a shorter one.")
+
+    telegram_file = await context.bot.get_file(voice.file_id)
+    voice_bytes = await telegram_file.download_as_bytearray()
+    if len(voice_bytes) > MAX_VOICE_BYTES:
+        raise VoiceTooLargeError("That voice note is too large. Please send a shorter one.")
+    return bytes(voice_bytes)
+
+
+async def transcribe_voice_message(voice_bytes: bytes) -> str:
+    if MODEL_PROVIDER != "groq":
+        raise VoiceTranscriptionUnavailableError(
+            "Voice-note replies currently need the Groq provider. Please send text "
+            "instead, or ask the bot owner to configure Groq."
+        )
+    if client is None:
+        raise RuntimeError("The model client has not been initialized.")
+
+    transcription = await client.audio.transcriptions.create(
+        file=("voice.ogg", voice_bytes, "audio/ogg"),
+        model=VOICE_TRANSCRIPTION_MODEL,
+        prompt=(
+            "Transcribe speech in Ghanaian English, Ghanaian Pidgin, or Twi "
+            "(Akan). Keep Twi words in their original language; do not translate."
+        ),
+        response_format="json",
+        temperature=0.0,
+    )
+    transcript = transcription.text.strip()
+    if not transcript:
+        raise VoiceTranscriptionUnavailableError(
+            "I couldn't catch that voice note. Try sending it again or type it for me."
+        )
+    return transcript
+
+
 async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
     if client is None:
         raise RuntimeError("The model client has not been initialized.")
@@ -274,18 +335,29 @@ async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
 async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = message.text or message.caption or ""
     has_photo = bool(message.photo)
-    if not text.strip() and not has_photo:
+    has_voice = message.voice is not None
+    if not text.strip() and not has_photo and not has_voice:
         return
 
     if message.chat.type != ChatType.CHANNEL:
         await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
 
-    prompt = text.strip() or (
-        "The user shared this photo and invited you to respond. Make a brief, "
-        "friendly, playful observation about a harmless detail in the image."
-    )
-
     try:
+        prompt = text.strip()
+        if has_voice:
+            voice_bytes = await load_voice_message(message, context)
+            transcript = await transcribe_voice_message(voice_bytes)
+            prompt = (
+                "The user sent this voice message. Respond to what they said:\n\n"
+                + (f"Caption: {prompt}\n\n" if prompt else "")
+                + transcript[:4000]
+            )
+        elif not prompt and has_photo:
+            prompt = (
+                "The user shared this photo and invited you to respond. Make a brief, "
+                "friendly, playful observation about a harmless detail in the image."
+            )
+
         image_bytes = await load_shared_photo(message, context) if has_photo else None
         answer = await generate_reply(prompt, image_bytes)
     except RateLimitError as error:
@@ -309,12 +381,21 @@ async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
     except PhotoTooLargeError as error:
         answer = str(error)
+    except VoiceTooLargeError as error:
+        answer = str(error)
+    except VoiceTranscriptionUnavailableError as error:
+        answer = str(error)
     except Exception:
         logger.exception("Could not process the message")
         answer = (
             "I couldn't open that photo just now. Try sending it again."
             if has_photo
-            else "Brooo my tiwui come ooo😂😂Make i answer you later."
+            else (
+                "I couldn't catch that voice note just now. Try sending it again "
+                "or type it for me."
+                if has_voice
+                else "Brooo my tiwui come ooo😂😂Make i answer you later."
+            )
         )
 
     await message.reply_text(
@@ -471,7 +552,13 @@ def main() -> None:
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.CAPTION | filters.PHOTO) & ~filters.COMMAND,
+            (
+                filters.TEXT
+                | filters.CAPTION
+                | filters.PHOTO
+                | filters.VOICE
+            )
+            & ~filters.COMMAND,
             handle_message,
         )
     )
