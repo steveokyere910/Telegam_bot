@@ -206,8 +206,8 @@ async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
     if client is None:
         raise RuntimeError("The model client has not been initialized.")
     user_content: str | list[dict[str, object]] = prompt[:4000]
-    max_retries = 3
-    retry_delay = 5
+    max_retries = 5
+    retry_delay = 10  # Start with 10 seconds for Gemini free tier
     if image_bytes is not None:
         user_content = [
             {"type": "text", "text": prompt[:4000]},
@@ -240,17 +240,21 @@ async def generate_reply(prompt: str, image_bytes: bytes | None = None) -> str:
             )
         except RateLimitError as error:
             if attempt < max_retries - 1:
+                # Calculate wait time with a bit of randomness (jitter)
+                actual_delay = retry_delay + secrets.randbelow(5)
                 logger.warning(
-                    "Rate limited. Retrying in %d seconds... (Attempt %d/%d)",
-                    retry_delay,
+                    "Rate limited by %s. Retrying in %d seconds... (Attempt %d/%d)",
+                    MODEL_NAME,
+                    actual_delay,
                     attempt + 1,
                     max_retries,
                 )
-                await asyncio.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+                await asyncio.sleep(actual_delay)
+                retry_delay *= 2  # Exponential backoff (10, 20, 40, 80...)
             else:
                 raise error
     return "I'm having a bit of trouble keeping up right now. Try again in a minute."
+
 
 
 
