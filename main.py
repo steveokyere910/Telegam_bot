@@ -3,6 +3,7 @@ import base64
 import hmac
 import logging
 import os
+import re
 import secrets
 import threading
 
@@ -164,6 +165,13 @@ def is_addressed_to_bot(message: Message, context: ContextTypes.DEFAULT_TYPE) ->
     if getattr(message, "is_automatic_forward", False):
         return True
 
+    text = message.text or message.caption or ""
+    bot_name = context.bot_data.get("bot_name", "")
+    if bot_name and re.search(
+        rf"(?<!\w){re.escape(bot_name)}(?!\w)", text, flags=re.IGNORECASE
+    ):
+        return True
+
     # Check for explicit mentions in entities
     is_caption = message.text is None
     entities = message.caption_entities if is_caption else message.entities
@@ -181,7 +189,7 @@ def is_addressed_to_bot(message: Message, context: ContextTypes.DEFAULT_TYPE) ->
             return True
 
     # Fallback: check raw text/caption for the username (useful if Privacy Mode is OFF)
-    text = (message.text or message.caption or "").casefold()
+    text = text.casefold()
     if bot_username and f"@{bot_username}".casefold() in text:
         return True
 
@@ -349,6 +357,7 @@ async def initialize(application: Application) -> None:
     me = await application.bot.get_me()
     application.bot_data["bot_id"] = me.id
     application.bot_data["bot_username"] = me.username or ""
+    application.bot_data["bot_name"] = me.first_name
     logger.info("Bot started as @%s", me.username)
 
 
