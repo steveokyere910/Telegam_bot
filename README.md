@@ -32,6 +32,15 @@ Keep Ollama running while the bot is running. Local response speed depends on
 the PC's hardware. To use Gemini instead, set `MODEL_PROVIDER=gemini` and
 configure `GEMINI_API_KEY` in `.env`; hosted providers still have usage limits.
 
+## Deploying on Render
+
+When `RENDER_EXTERNAL_URL` is present, the app receives Telegram updates through
+a webhook instead of polling. This lets a Telegram update reach the Render web
+service and wake a free instance automatically. The first reply after the
+service has been idle may take about a minute. No separate keep-alive service
+is needed. Avoid running a local copy with the same bot token while the Render
+deployment is active.
+
 ## Add it to chats
 
 - **DMs:** Open the bot and send `/start`. It replies to text, captions, and
