@@ -276,10 +276,12 @@ async def respond(message: Message, context: ContextTypes.DEFAULT_TYPE) -> None:
         "The user shared this photo and invited you to respond. Make a brief, "
         "friendly, playful observation about a harmless detail in the image."
     )
-        try:
+
+    try:
         image_bytes = await load_shared_photo(message, context) if has_photo else None
         answer = await generate_reply(prompt, image_bytes)
     except RateLimitError as error:
+
         logger.warning("Model API rate limit: code=%s type=%s", error.code, error.type)
         if MODEL_PROVIDER == "groq":
             answer = (
